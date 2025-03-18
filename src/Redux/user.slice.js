@@ -23,9 +23,12 @@ const userSlice = createSlice({
             state.username = ""
             state.email = ""
             state.picture = ""
+        },
+        usernameUpdate: (state, action) => {
+            state.username = action.payload.username
         }
     }
 })
 
-export const { userLogin, userLogout } = userSlice.actions
+export const { userLogin, userLogout, usernameUpdate } = userSlice.actions
 export const { reducer: userReducer } = userSlice

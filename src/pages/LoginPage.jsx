@@ -18,13 +18,7 @@ export const LoginPage = () => {
             if (status === 200) {
                 console.log(data);
                 const { sub: user } = jwtDecode(data.token)
-                dispatch(userLogin({
-                    name: user.name,
-                    username: user.email.split("@")[0],
-                    email: user.email,
-                    picture: user.picture,
-                    id: user._id
-                }))
+                dispatch(userLogin({ name: user.name, username: user.email.split("@")[0], email: user.email, picture: user.picture, id: user._id }))
                 cookie.set(data.token)
                 toast.success("Logged in successfully")
                 return navigate("/")
@@ -36,9 +30,7 @@ export const LoginPage = () => {
         }
     }
 
-    const handleError = () => {
-        return toast.error("Something went wrong")
-    }
+    const handleError = () => toast.error("Something went wrong")
 
     return <div className="flex justify-center items-center h-screen flex-col">
         <div className="font-medium text-xl mb-3">Login to continue</div>

@@ -14,9 +14,7 @@ export const SearchModal = ({ handleChatCreation, setShowSearch }) => {
     const handleUserFetch = async () => {
         try {
             const { data, status } = await api.get(`/v1/users/search`, { params: { query: searchQuery, id } })
-            if (status == 200) {
-                setSearchResult(data)
-            }
+            if (status == 200) setSearchResult(data)
         } catch (err) {
             return toast.error(err.response?.data.message || "Something went wrong")
         }

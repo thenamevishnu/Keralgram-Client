@@ -1,4 +1,4 @@
-import { FaBars, FaSearch, FaSignOutAlt } from "react-icons/fa"
+import { FaBars, FaImage, FaSearch, FaSignOutAlt } from "react-icons/fa"
 import { CurrentChatScreen } from "./CurrentChatScreen"
 import { useChat } from "../Context/ChatProvider"
 import { useEffect, useState } from "react"
@@ -6,11 +6,11 @@ import { api } from "../axios"
 import { toast } from "react-toastify"
 import { useDispatch, useSelector } from "react-redux"
 import { SearchModal } from "../Modals/SearchModal"
-import { FaGear } from "react-icons/fa6"
 import { useSocket } from "../Context/SocketProvider"
 import { cookie } from "../lib/cookie"
 import { userLogout } from "../Redux/user.slice"
 import { useNavigate } from "react-router"
+import { ProfileModal } from "../Modals/ProfileModal"
 
 export const ChatPage = () => {
 
@@ -21,6 +21,7 @@ export const ChatPage = () => {
     const [updateList, setUpdateList] = useState(new Date())
     const [showSearch, setShowSearch] = useState(false)
     const [toggleMenu, setToggleMenu] = useState(false)
+    const [showProfile, setShowProfile] = useState(false)
     const dispatch = useDispatch()
     const navigate = useNavigate()
 
@@ -43,9 +44,7 @@ export const ChatPage = () => {
         })()
     }, [updateList])
 
-    const getOpponent = users => {
-        return users.users_info.find(user => user._id !== id)
-    }
+    const getOpponent = users => users.users_info.find(user => user._id !== id)
 
     const handleChatCreation = async user => {
         try {
@@ -58,17 +57,8 @@ export const ChatPage = () => {
     }
 
     useEffect(() => {
-        if (!currentChat) {
-            socket.on("receive_message_alt", _message => {
-                setUpdateList(new Date())
-            })
-        }
-    }, [socket, id, currentChat])
-
-    useEffect(() => {
-        if (id) {
-            socket.emit("join", id)
-        }
+        if (id) socket.emit("join", id)
+        socket.on("receive_message_alt", _message => setUpdateList(new Date()))
     }, [id, socket])
 
     const handleLogout = () => {
@@ -78,13 +68,13 @@ export const ChatPage = () => {
     }
 
     return <div className="flex">
+        {showProfile && <ProfileModal setShowProfile={setShowProfile}/>}
         {showSearch && <SearchModal setShowSearch={setShowSearch} handleChatCreation={handleChatCreation} />}
         <div className={`${currentChat && "hidden md:flex"} flex w-10 h-10 rounded-full justify-center items-center fixed bottom-1 left-1 bg-black/30 cursor-pointer`}>
             <FaBars size={22} onClick={() => setToggleMenu(menu => !menu)} />
             <div className="absolute flex bottom-13 left-0 flex-col">
                 <div onClick={() => setShowSearch(true)} className={`w-10 absolute duration-200 ${toggleMenu ? "bottom-36" : "bottom-0 opacity-0 pointer-events-none"} h-10 flex justify-center items-center rounded-full overflow-hidden bg-black/30`}><FaSearch size={22} /></div>
-                <div className={`w-10 absolute duration-200 ${toggleMenu ? "bottom-24" : "bottom-0 opacity-0 pointer-events-none"} h-10 flex justify-center items-center rounded-full overflow-hidden bg-black/30`}><FaGear size={22} /></div>
-                <div className={`w-10 absolute duration-200 ${toggleMenu ? "bottom-12" : "bottom-0 opacity-0 pointer-events-none"} h-10 rounded-full overflow-hidden bg-black/30`}><img src={picture} alt={name} /></div>
+                <div onClick={() => setShowProfile(true)} className={`w-10 absolute duration-200 ${toggleMenu ? "bottom-12" : "bottom-0 opacity-0 pointer-events-none"} h-10 rounded-full overflow-hidden bg-black/30`}><img src={picture} alt={name} /></div>
                 <div onClick={handleLogout} className={`w-10 absolute duration-200 ${toggleMenu ? "bottom-0" : "bottom-0 opacity-0 pointer-events-none"} text-red-500 h-10 rounded-full flex justify-center items-center overflow-hidden bg-black/30`}><FaSignOutAlt /></div>
             </div>
         </div>
@@ -107,7 +97,11 @@ export const ChatPage = () => {
                                 <img className="h-12 w-12 rounded-full" src={user.picture} alt="" />
                                 <div className="ml-2">
                                     <p>{user.name}</p>
-                                    <p className="text-sm truncate">{u.last_message.length > 10 ? u.last_message.slice(0, 10) + "..." : u.last_message}</p>
+                                    {
+                                        u.last_message_type == "text" ? <p className="text-sm truncate">{u.last_message.length > 10 ? u.last_message.slice(0, 10) + "..." : u.last_message}</p> : 
+                                        u.last_message_type == "image" ? <p className="text-sm truncate flex items-center gap-1"><FaImage size={15}/> Photo</p> : 
+                                        u.last_message_type == "video" ? <p className="text-sm truncate">Video</p> : "..."
+                                    }
                                 </div>
                             </div>
                             <div className="text-xs text-nowrap ">{new Date(u.last_message_time * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }).toUpperCase()}</div>
