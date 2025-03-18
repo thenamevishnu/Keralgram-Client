@@ -1,12 +1,15 @@
-import { FaEllipsisVertical, FaRegMessage } from "react-icons/fa6"
+import { FaEllipsisVertical } from "react-icons/fa6"
 import { useChat } from "../Context/ChatProvider"
 import { FaChevronLeft, FaPhoneAlt, FaRegPaperPlane, FaVideo } from "react-icons/fa"
 import { SiGooglemessages } from "react-icons/si"
-import { Fragment, useEffect, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useRef, useState } from "react"
 import { useSocket } from "../Context/SocketProvider"
+import { RiEmojiStickerFill, RiProhibitedLine } from "react-icons/ri";
 import { api } from "../axios"
 import { toast } from "react-toastify"
 import { useSelector } from "react-redux"
+import { MessageContextMenu } from "../Modals/MessageContextMenu"
+import EmojiPicker from "emoji-picker-react"
 
 export const CurrentChatScreen = ({ setUpdateList }) => {
     
@@ -19,8 +22,10 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
     const timeOutRef = useRef(null)
     const [typing, setTyping] = useState(false)
     const dateRef = useRef(null)
+    const [showContextMenu, setShowContextMenu] = useState(false)
+    const [showEmojiList, setEmojiList] = useState(false)
 
-    const handleTyping = () => {
+    const handleTyping = useCallback(() => {
         socket.emit("start_typing", { chat_id: currentChat._id, user: id })
         clearInterval(timeOutRef.current)
         if (timeOutRef) {
@@ -28,14 +33,13 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                 socket.emit("stop_typing", { chat_id: currentChat._id, user: id })
             }, 1000)
         }
-    }
+    }, [socket, currentChat, id])
 
     useEffect(() => {
-        if(currentChat) {
+        if (currentChat) {
             (async () => {
                 try {
                     const { data, status } = await api.get(`/v1/messages/${currentChat._id}`)
-                    console.log(currentChat);
                     if (status === 200) {
                         return setMessages(data)
                     }
@@ -48,8 +52,9 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
         }
     }, [currentChat])
 
-    const sendMessage = async e => {
+    const sendMessage = useCallback(async e => {
         e.preventDefault()
+        setEmojiList(false)
         if (!message) return;
         const messageObj = {
             message,
@@ -72,7 +77,7 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
         } catch (err) {
             return toast.error(err.response?.data.message || "Something went wrong")
         }
-    }
+    }, [message, currentChat, id, setMessages, socket, setUpdateList])
 
     useEffect(() => {
         if (messageRef.current) {
@@ -85,7 +90,7 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
     
     useEffect(() => {
         if (currentChat) {
-            socket.emit("join_chat", {chat_id: currentChat._id})
+            socket.emit("join_chat", { chat_id: currentChat._id })
         }
     }, [currentChat])
 
@@ -104,7 +109,15 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                 setTyping(false)
             }
         })
+        socket.on("on_delete_message", message => {
+            setMessages(msgs => msgs.map(msg => msg._id == message._id ? message : msg))
+        })
     }, [socket])
+
+    const handleContextMenu = useCallback((e, message) => {
+        e.preventDefault()
+        setShowContextMenu(message)
+    }, [])
 
     if (!currentChat) {
         return <div className="w-full flex justify-center items-center h-full">
@@ -112,47 +125,71 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
         </div>
     }
 
+    const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+    let showDate = false
+    if (dateRef.current !== today) {
+        showDate = true
+        dateRef.current = today
+    }
+
+    const handleEmojiClick = (emoji) => {
+        setMessage(message => (message + emoji.emoji))
+    }
+
     return <div className="h-full">
+        {showContextMenu && <MessageContextMenu setContextMenu={setShowContextMenu} showContextMenu={showContextMenu} handleDeleteSuccess={(message, type) => {
+            setMessages(msgs => msgs.map(msg => msg._id == message._id ? message : msg))
+            setShowContextMenu(false)
+            if (type == "everyone") {
+                socket.emit("message_deleted", message)
+            }
+        }} />}
         <div className="h-full">
             <div className="flex shadow shadow-black/30 justify-between p-2 h-[60px] gap-2 items-center sticky top-0">
                 <div className="flex items-center gap-2">
-                    <FaChevronLeft className="cursor-pointer" onClick={() => setCurrentChat(null)}/>
+                    <FaChevronLeft className="cursor-pointer" onClick={() => setCurrentChat(null)} />
                     <img src={currentChat.users_info.find(u => u._id !== id)?.picture} alt={currentChat.users_info.find(u => u._id !== id)?.name} className="w-12 h-12 rounded-full" />
-                    <div>
-                        <p>{currentChat.users_info.find(u => u._id !== id)?.name}</p>
-                        <p className="text-green-400 text-xs">{typing ? "Typing..." : "Online"}</p>
+                    <div className="truncate">
+                        <p className="truncate">{currentChat.users_info.find(u => u._id !== id)?.name}</p>
+                        <p className="text-green-400 text-xs">{typing && "Typing..."}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-5">
-                    <FaPhoneAlt size={18}/>
+                    <FaPhoneAlt size={18} />
                     <FaVideo size={18} />
-                    <FaEllipsisVertical size={18}/>
+                    <FaEllipsisVertical size={18} />
                 </div>
             </div>
             <div ref={messageRef} className="h-[calc(100%-120px)] p-2 overflow-y-scroll scroll flex flex-col gap-2">
                 {
                     messages.map((message) => {
+                        if (message.delete_for_me?.includes(id)) {
+                            return null
+                        }
                         const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
                         const d = new Date(message.time * 1000)
-                        const toDate = d.toLocaleDateString() + " - " + days[d.getDay()]
-                        const msg = (<Fragment>
-                            {
-                                dateRef.current != toDate && <div className="text-white text-center flex justify-center">
-                                    <div className="bg-black/10 p-1 px-4 rounded-full">
-                                        {toDate}
-                                    </div>
-                                </div>
-                            }
-                        </Fragment>)
-                        if (dateRef.current != toDate) {
+                        const toDate = d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) + " - " + days[d.getDay()]
+                        let showDate = false
+                        if (dateRef.current !== toDate) {
+                            showDate = true
                             dateRef.current = toDate
                         }
                         return <Fragment key={message._id}>
-                            {msg}
-                            <div className={`w-full ${message.sender == id ? "flex-row-reverse" : "flex-row"} flex` }>
-                                <div className={`flex ${message.sender == id ? "bg-white/5" : "bg-black/20"} px-2 rounded-md md:max-w-[300px] lg:max-w-[450px] items-center gap-2`}>
-                                    <div className="flex w-full flex-col gap-2">
-                                        <p className="break-words p-2">{message.message}</p>
+                            {showDate && <div className="text-white text-center flex justify-center">
+                                <div className="bg-black/10 p-1 px-4 rounded-full">
+                                    {toDate}
+                                </div>
+                            </div>}
+                            <div className={`w-full ${message.sender == id ? "flex-row-reverse" : "flex-row"} flex`}>
+                                <div onContextMenu={(e) => handleContextMenu(e, message)} className={`flex ${message.sender == id ? "bg-white/5" : "bg-black/20"} px-2 rounded-md active:bg-black  min-w-[120px] max-w-[200px] xs:max-w-[300px] lg:max-w-[450px] items-center gap-2`}>
+                                    <div className="flex w-full flex-col gap-1 p-1">
+                                        {
+                                            message.delete_for_everyone ? <div className="italic flex gap-1 items-center"> <RiProhibitedLine />This message was deleted</div> :
+                                                <Fragment>
+                                                    <p className="break-words whitespace-pre-wrap">{message.message}</p>
+                                                    <div className={`text-[10px] text-end`}>{new Date(message.time * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }).toUpperCase()}</div>
+                                                </Fragment>
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -160,12 +197,16 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                     })
                 }
             </div>
-            <form onSubmit={sendMessage} className="sticky shadow bottom-0 h-[60px] flex items-center gap-3 p-2">
-                <div className="flex rounded-full items-center w-full">
-                    <div className="p-3 pe-0 flex items-center"><SiGooglemessages size={25}/></div>
-                    <input onInput={handleTyping} type="text" value={message} onChange={({ target: { value } }) => setMessage(value)} placeholder="Message..." className="p-3 w-full outline-none" />
+            <form onSubmit={sendMessage} className="sticky shadow shadow-black/30 bottom-0 h-[60px] flex items-center gap-3 p-2">
+                <div className={`absolute bottom-[60px] ${showEmojiList ? "h-[400px]" : "h-0"} duration-150 ease-linear overflow-hidden`}>
+                    <EmojiPicker onEmojiClick={handleEmojiClick} height={400} width={350} suggestedEmojisMode="frequent" placeholder="Search Emoji..." emojiStyle="apple" theme="dark" />
                 </div>
-                <button type="submit" className="p-3 rounded-full cursor-pointer"><FaRegPaperPlane size={25} cursor={"pointer"}/></button>
+                <div className="flex rounded-full items-center w-full">
+                    <div className="p-3 pe-0 flex items-center cursor-pointer"><RiEmojiStickerFill size={25} onClick={() => setEmojiList(pre => !pre)}/></div>
+                    <div className="p-3 pe-0 flex items-center"><SiGooglemessages size={25} /></div>
+                    <textarea onInput={handleTyping} type="text" value={message} onChange={({ target: { value } }) => setMessage(value)} placeholder="Message..." className="p-3 w-full outline-none resize-none scroll-none" rows={1} />
+                </div>
+                <button type="submit" className="p-3 rounded-full cursor-pointer"><FaRegPaperPlane size={25} cursor={"pointer"} /></button>
             </form>
         </div>
     </div>
