@@ -1,20 +1,22 @@
-import { FaEllipsisVertical } from "react-icons/fa6"
-import { useChat } from "../Context/ChatProvider"
-import { FaChevronLeft, FaPaperclip, FaPhoneAlt, FaRegPaperPlane, FaVideo } from "react-icons/fa"
-import { SiGooglemessages } from "react-icons/si"
-import { Fragment, useCallback, useEffect, useRef, useState } from "react"
+import { FaEllipsisVertical, FaMicrophone } from "react-icons/fa6"
+import { FaChevronLeft, FaPaperclip, FaPhoneAlt, FaRegPaperPlane, FaRegStopCircle, FaStopCircle, FaVideo } from "react-icons/fa"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useSocket } from "../Context/SocketProvider"
-import { RiEmojiStickerFill, RiProhibitedLine } from "react-icons/ri";
+import { RiEmojiStickerFill } from "react-icons/ri";
 import { api } from "../axios"
 import { toast } from "react-toastify"
-import { useSelector } from "react-redux"
+import { useDispatch, useSelector } from "react-redux"
 import { MessageContextMenu } from "../Modals/MessageContextMenu"
 import EmojiPicker from "emoji-picker-react"
+import { DisplayMessage } from "../components/DisplayMessage"
+import { AudioPlayer } from "../components/AudioPlayer"
+import { Loading } from "../components/Loading"
+import { setCurrentChat } from "../Redux/currentChat.slice"
 
 export const CurrentChatScreen = ({ setUpdateList }) => {
     
     const { id } = useSelector(state => state.user)
-    const { currentChat, setCurrentChat } = useChat()
+    const { currentChat } = useSelector(state => state.current_chat)
     const [messages, setMessages] = useState([])
     const [message, setMessage] = useState("")
     const messageRef = useRef(null)
@@ -24,6 +26,68 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
     const dateRef = useRef(null)
     const [showContextMenu, setShowContextMenu] = useState(false)
     const [showEmojiList, setEmojiList] = useState(false)
+    const [recording, setRecording] = useState(false);
+    const [audioBlob, setAudioBlob] = useState(null);
+    const [audioURL, setAudioURL] = useState(null);
+    const mediaRecorderRef = useRef(null);
+    const [isLoading, setLoading] = useState(false)
+    const audioChunksRef = useRef([]);
+    const dispatch = useDispatch()
+
+    const startRecording = async ({ }) => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+                setAudioBlob(audioBlob);
+                setAudioURL(URL.createObjectURL(audioBlob));
+            };
+
+            mediaRecorder.start();
+            setRecording(true);
+        } catch (error) {
+            toast.error("Microphone access denied.");
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current) {
+            mediaRecorderRef.current.stop();
+            setRecording(false);
+        }
+    };
+
+    const sendAudioMessage = async () => {
+        if (!audioBlob) return;
+
+        const formData = new FormData();
+        const file_name = new Date().getTime()
+        formData.append("file", audioBlob, `${file_name}.webm`);
+
+        try {
+            const { data, status } = await api.post("/v1/messages/upload", formData, {
+                headers: { "Content-Type": "multipart/form-data" }
+            });
+
+            if (status === 200) {
+                sendMessage(null, "voice", data.url, file_name+".webm", "webm", audioBlob.size);
+                setAudioBlob(null);
+                setAudioURL(null);
+            }
+        } catch (err) {
+            toast.error("Failed to send audio message.");
+        }
+    };
 
     const handleTyping = useCallback(() => {
         socket.emit("start_typing", { chat_id: currentChat._id, user: id })
@@ -36,35 +100,40 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
     }, [socket, currentChat, id])
 
     useEffect(() => {
+        setLoading(true)
         if (currentChat) {
             (async () => {
                 try {
                     const { data, status } = await api.get(`/v1/messages/${currentChat._id}`)
                     if (status === 200) {
+                        setLoading(false)
                         return setMessages(data)
                     }
-                    setCurrentChat(null)
+                    setLoading(false)
+                    dispatch(setCurrentChat(null))
                 } catch (err) {
-                    setCurrentChat(null)
+                    setLoading(false)
+                    dispatch(setCurrentChat(null))
                     return toast.error(err.response?.data.message || "Something went wrong")
                 }
             })()
         }
     }, [currentChat])
 
-    const sendMessage = useCallback(async (e, type, msg=null) => {
-        e.preventDefault()
+    const sendMessage = useCallback(async (e=null, type, msg=null, file_name=null, ext=null, file_size) => {
         setEmojiList(false)
         if (!msg && !message) return;
         const messageObj = {
             message: msg || message,
             type: type,
+            file_name,
+            file_size,
+            file_extension: ext,
             chat_id: currentChat._id,
             time: Math.floor(new Date().getTime() / 1000),
             sender: id,
             to: currentChat.users_info.find(u => u._id !== id)?._id
         }
-        console.log(messageObj);
         try {
             const { data, status } = await api.post(`/v1/messages`, messageObj)
             if (status != 200) {
@@ -77,7 +146,7 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
             setMessage("")
             setUpdateList(new Date())
         } catch (err) {
-            return toast.error(err.response?.data.message || "Something went wrong")
+            return toast.error(err.response?.data.message || "Unsupported media type")
         }
     }, [message, currentChat, id, setMessages, socket, setUpdateList])
 
@@ -140,13 +209,20 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                 })
                 if (status === 200) {
                     console.log(data);
-                    return sendMessage({preventDefault: () => {}}, data.type, data.url)
+                    return sendMessage({preventDefault: () => {}}, data.type, data.url, data.file_name, data.ext, file.size)
                 }
                 return setMessage("")
             } catch (err) {
                 return toast.error(err.response?.data.message || "Something went wrong")
             }
         })()
+    }
+
+    const handleDownload = ({ message: file, file_name}) => {
+        const link = document.createElement("a")
+        link.href = file
+        link.download = file_name
+        link.click()
     }
 
     return <div className="h-full">
@@ -156,9 +232,9 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
             if (type == "everyone") socket.emit("message_deleted", message)
         }} />}
         <div className="h-full">
-            <div className="flex shadow shadow-black/30 justify-between p-2 h-[60px] gap-2 items-center sticky top-0">
+            <div className="flex shadow shadow-black/30 justify-between p-2 h-[60px] gap-2 items-center">
                 <div className="flex items-center gap-2">
-                    <FaChevronLeft className="cursor-pointer" onClick={() => setCurrentChat(null)} />
+                    <FaChevronLeft className="cursor-pointer" onClick={() => dispatch(setCurrentChat(null))} />
                     <img src={currentChat.users_info.find(u => u._id !== id)?.picture} alt={currentChat.users_info.find(u => u._id !== id)?.name} className="w-12 h-12 rounded-full" />
                     <div className="truncate">
                         <p className="truncate">{currentChat.users_info.find(u => u._id !== id)?.name}</p>
@@ -171,9 +247,15 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                     <FaEllipsisVertical size={18} />
                 </div>
             </div>
-            <div ref={messageRef} className="h-[calc(100%-120px)] p-2 overflow-y-scroll scroll flex flex-col gap-2">
+            <div ref={messageRef} className="h-[calc(100%-120px)] p-2 overflow-y-scroll scroll flex flex-col gap-1">
                 {
-                    messages.map((message) => {
+                    isLoading && <div className="flex justify-center mt-2"><Loading /></div>
+                }
+                {
+                    !isLoading && messages?.length == 0 && <div className="text-center mt-2">No messages found!</div>
+                }
+                {
+                    !isLoading && messages.map((message) => {
                         if (message.delete_for_me?.includes(id)) return null
                         const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
                         const d = new Date(message.time * 1000)
@@ -183,32 +265,11 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                             showDate = true
                             dateRef.current = toDate
                         }
-                        return <Fragment key={message._id}>
-                            {showDate && <div className="text-white text-center flex justify-center">
-                                <div className="bg-black/10 p-1 px-4 rounded-full">
-                                    {toDate}
-                                </div>
-                            </div>}
-                            <div className={`w-full ${message.sender == id ? "flex-row-reverse" : "flex-row"} flex`}>
-                                <div onContextMenu={(e) => handleContextMenu(e, message)} className={`flex ${message.sender == id ? "bg-white/5" : "bg-black/20"} px-2 rounded-md active:bg-black  min-w-[120px] max-w-[200px] xs:max-w-[300px] lg:max-w-[450px] items-center gap-2`}>
-                                    <div className="flex w-full flex-col gap-1 p-1">
-                                        {
-                                            message.delete_for_everyone ? <div className="italic flex gap-1 items-center"> <RiProhibitedLine />This message was deleted</div> :
-                                                <Fragment>
-                                                    {message.type == "image" ? <img src={message.message} alt="image" className="aspect-square object-containrounded-md" /> : 
-                                                    message.type == "video" ? <video src={message.message} controls className="w-full h-full rounded-md" /> : 
-                                                    <p className="break-words whitespace-pre-wrap">{message.message}</p>}
-                                                    <div className={`text-[10px] text-end`}>{new Date(message.time * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }).toUpperCase()}</div>
-                                                </Fragment>
-                                        }
-                                    </div>
-                                </div>
-                            </div>
-                        </Fragment>
+                        return <DisplayMessage key={message._id} message={message} id={id} handleContextMenu={handleContextMenu} showDate={showDate} toDate={toDate} handleDownload={handleDownload}/>
                     })
                 }
             </div>
-            <form onSubmit={e => sendMessage(e, "text")} className="sticky shadow shadow-black/30 bottom-0 h-[60px] flex items-center gap-3 p-2">
+            <form className="shadow shadow-black/30 h-[60px] flex items-center gap-3 p-2">
                 <div className={`absolute bottom-[60px] ${showEmojiList ? "h-[400px]" : "h-0"} duration-150 ease-linear overflow-hidden`}>
                     <EmojiPicker onEmojiClick={handleEmojiClick} height={400} width={350} suggestedEmojisMode="frequent" placeholder="Search Emoji..." emojiStyle="apple" theme="dark" />
                 </div>
@@ -218,10 +279,17 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                         <FaPaperclip size={20}/>
                         <input type="file" onChange={(e) => handleFileUpload(e.target.files[0])} className="absolute opacity-0 cursor-pointer"/>
                     </div>
-                    <textarea onInput={handleTyping} type="text" value={message} onChange={({ target: { value } }) => setMessage(value)} placeholder="Message..." className="p-3 w-full outline-none resize-none scroll-none" rows={1} />
+                    {audioBlob ? <AudioPlayer type={"voice"} className="ms-2" audio={audioURL} id={0} sender={0}/> : <textarea onInput={handleTyping} type="text" value={message} onChange={({ target: { value } }) => setMessage(value)} placeholder="Message..." className="p-3 w-full outline-none resize-none scroll-none" rows={1} />}
                 </div>
-                <button type="submit" className="p-3 rounded-full cursor-pointer"><FaRegPaperPlane size={25} cursor={"pointer"} /></button>
+                <div className="flex gap-3">
+                {
+                    recording ? <button type="button" onClick={stopRecording} className="py-3 rounded-full cursor-pointer" ><FaRegStopCircle  size={25} cursor={"pointer"} /></button> : <button type="button" onClick={startRecording} className="py-3 rounded-full cursor-pointer"><FaMicrophone size={25} cursor={"pointer"} /></button>
+                }
+                <button type="button" onClick={() => audioBlob ? sendAudioMessage() :sendMessage(null, "text")} className="py-3 rounded-full cursor-pointer"><FaRegPaperPlane size={25} cursor={"pointer"} /></button>
+                </div>
             </form>
         </div>
     </div>
 }
+
+

@@ -1,7 +1,6 @@
 import { createRoot } from "react-dom/client"
 import { App } from "./routes/App"
 import "./main.css"
-import { ChatProvider } from "./Context/ChatProvider"
 import { SocketProvider } from "./Context/SocketProvider"
 import { PersistGate } from "redux-persist/integration/react"
 import { persistor, store } from "./Redux/store"
@@ -15,10 +14,8 @@ app.render(<GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_LOGIN_CLIE
     <PersistGate loading={null} persistor={persistor}>
         <Provider store={store}>
             <SocketProvider>
-                <ChatProvider>
-                    <App />
-                    <ToastContainer autoClose={1700} limit={1}/>
-                </ChatProvider>
+                <App />
+                <ToastContainer autoClose={1700} limit={1}/>
             </SocketProvider>
         </Provider>
     </PersistGate>

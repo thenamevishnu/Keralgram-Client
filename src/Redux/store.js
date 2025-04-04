@@ -2,17 +2,24 @@ import storage from "redux-persist/lib/storage"
 import { persistReducer, persistStore } from "redux-persist"
 import { userReducer } from "./user.slice"
 import { configureStore } from "@reduxjs/toolkit"
+import { currentChatReducer } from "./currentChat.slice"
 
 const persistConfig = {
     key: "root",
     storage
 }
+const persistConfig2 = {
+    key: "root2",
+    storage
+}
 
 const persistedUserReducer = persistReducer(persistConfig, userReducer)
+const persistedCurrentChatReducer = persistReducer(persistConfig2, currentChatReducer)
 
 export const store = configureStore({
     reducer: {
-        user: persistedUserReducer
+        user: persistedUserReducer,
+        current_chat: persistedCurrentChatReducer
     },
     middleware: getDefaultMiddleware => {
         return getDefaultMiddleware({
