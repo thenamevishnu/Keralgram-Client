@@ -23,6 +23,7 @@ export const ChatPage = () => {
 
     const { id, picture, name } = useSelector(state => state.user)
     const { currentChat } = useSelector(state => state.current_chat)
+    const { online } = useSelector(state => state.online_users)
     const { socket } = useSocket()
     const [users, setUsers] = useState([])
     const [updateList, setUpdateList] = useState(new Date())
@@ -34,9 +35,17 @@ export const ChatPage = () => {
     const dispatch = useDispatch()
     const navigate = useNavigate()
 
+    useEffect(() => {
+        const handleUnload = () => {
+            socket.emit("offline", id)
+            socket.disconnect()
+        }
+        window.addEventListener("beforeunload", handleUnload)
+        return () => window.removeEventListener("beforeunload", handleUnload)
+    }, [])
+
     const getChatList = async () => {
         try {
-
             const { status, data } = await api.get(`/v1/chats/${id}?query=${query}`)
             if (status === 200) {
                 setLoading(false)
@@ -72,6 +81,7 @@ export const ChatPage = () => {
             mountedInit = true
         }
     }, [updateList])
+
     const getOpponent = users => users.users_info.find(user => user._id !== id)
 
     const handleChatCreation = async user => {
@@ -86,12 +96,24 @@ export const ChatPage = () => {
 
     useEffect(() => {
         if (id) socket.emit("join", id)
-        socket.on("receive_message_alt", _message => setUpdateList(new Date()))
-    }, [id, socket])
+        socket.on("receive_message_alt", async message => {
+            if (message.chat_id != currentChat?._id) {
+                const res =await api.post(`/v1/messages/unread`, { chat_id: message.chat_id, to: message.sender })
+                if (res.status == 200) {
+                    users.map(item => item._id == message.chat_id ? ({ ...item, unread: [{...item.unread, [getOpponent(item)?._id]: res.data?.[getOpponent(item)?._id] || 0}] }) : item)
+                }
+            }
+            setUpdateList(new Date())
+        })
+        return () => {
+            socket.off("receive_message_alt")
+        }
+    }, [id, socket, currentChat])
 
     const handleLogout = () => {
         cookie.remove()
         dispatch(userLogout())
+        socket.emit("offline", id)
         return navigate("/auth")
     }
 
@@ -123,9 +145,12 @@ export const ChatPage = () => {
                 {
                     !isLoading && users.map((u) => {
                         const user = getOpponent(u)
-                        return <div key={user._id} onClick={() => handleChatCreation(user)} className="flex p-1 items-center justify-between cursor-pointer duration-200 hover:bg-black/10 rounded">
+                        return <div key={user._id} onClick={() => handleChatCreation(user)} className="flex p-1 relative items-center justify-between cursor-pointer duration-200 hover:bg-black/10 rounded">
                             <div className="p-1 flex w-full">
-                                <img className="h-12 w-12 rounded-full" src={user.picture} alt="" />
+                                <div className="relative">
+                                {u?.unread?.[0]?.[user._id] > 0 && <div className="w-4 h-4 absolute top-0 right-0 rounded-full flex justify-center items-center bg-green-600 text-white">{u?.unread?.[0]?.[user._id]}</div>}
+                                    <img className="h-12 w-12 rounded-full" src={user.picture} alt="" />
+                                </div>
                                 <div className="ml-2">
                                     <p>{user.name}</p>
                                     {
@@ -137,7 +162,10 @@ export const ChatPage = () => {
                                     }
                                 </div>
                             </div>
-                            <div className="text-xs text-nowrap ">{new Date(u.last_message_time * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }).toUpperCase()}</div>
+                            <div className="text-xs text-nowrap flex flex-col items-center gpa-3">
+                                <div>{new Date(u.last_message_time * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }).toUpperCase()}</div>
+                                <div>{online?.includes(user._id) ? <span className="text-green-600">Online</span> : <span className="text-red-500">Offline</span>}</div>
+                            </div>
                         </div>
                     })
                 }

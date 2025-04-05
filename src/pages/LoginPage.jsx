@@ -10,22 +10,19 @@ import { useNavigate } from "react-router"
 export const LoginPage = () => {
 
     const dispatch = useDispatch()
-    const navigate = useNavigate()
 
     const handleSuccess = async ({ credential }) => {
         try {
             const { data, status } = await api.post("/v1/users", { credential }) 
             if (status === 200) {
-                console.log(data);
                 const { sub: user } = jwtDecode(data.token)
                 dispatch(userLogin({ name: user.name, username: user.email.split("@")[0], email: user.email, picture: user.picture, id: user._id }))
                 cookie.set(data.token)
-                toast.success("Logged in successfully")
-                return navigate("/")
+                location.href = "/"
+                return;
             }
             return toast.error(data.message)
         } catch (err) {
-            console.log(err);
             return toast.error(err.response?.data.message || "Something went wrong")
         }
     }

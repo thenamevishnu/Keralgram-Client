@@ -11,12 +11,13 @@ import EmojiPicker from "emoji-picker-react"
 import { DisplayMessage } from "../components/DisplayMessage"
 import { AudioPlayer } from "../components/AudioPlayer"
 import { Loading } from "../components/Loading"
-import { setCurrentChat } from "../Redux/currentChat.slice"
+import { removeCurrentChat } from "../Redux/currentChat.slice"
 
 export const CurrentChatScreen = ({ setUpdateList }) => {
     
     const { id } = useSelector(state => state.user)
     const { currentChat } = useSelector(state => state.current_chat)
+    const { online } = useSelector(state => state.online_users)
     const [messages, setMessages] = useState([])
     const [message, setMessage] = useState("")
     const messageRef = useRef(null)
@@ -33,6 +34,10 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
     const [isLoading, setLoading] = useState(false)
     const audioChunksRef = useRef([]);
     const dispatch = useDispatch()
+
+    useEffect(() => {
+        dispatch(removeCurrentChat())
+    }, [])
 
     const startRecording = async ({ }) => {
         try {
@@ -89,6 +94,8 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
         }
     };
 
+    console.log(online);
+
     const handleTyping = useCallback(() => {
         socket.emit("start_typing", { chat_id: currentChat._id, user: id })
         clearInterval(timeOutRef.current)
@@ -106,14 +113,16 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                 try {
                     const { data, status } = await api.get(`/v1/messages/${currentChat._id}`)
                     if (status === 200) {
+                        await api.post(`/v1/messages/unread`, { chat_id: currentChat._id, to: (currentChat.users_info.find(user => user._id !== id))?._id, reset: true })
                         setLoading(false)
+                        setUpdateList(new Date())
                         return setMessages(data)
                     }
                     setLoading(false)
-                    dispatch(setCurrentChat(null))
+                    dispatch(removeCurrentChat())
                 } catch (err) {
                     setLoading(false)
-                    dispatch(setCurrentChat(null))
+                    dispatch(removeCurrentChat())
                     return toast.error(err.response?.data.message || "Something went wrong")
                 }
             })()
@@ -208,7 +217,6 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
                     }
                 })
                 if (status === 200) {
-                    console.log(data);
                     return sendMessage({preventDefault: () => {}}, data.type, data.url, data.file_name, data.ext, file.size)
                 }
                 return setMessage("")
@@ -234,11 +242,11 @@ export const CurrentChatScreen = ({ setUpdateList }) => {
         <div className="h-full">
             <div className="flex shadow shadow-black/30 justify-between p-2 h-[60px] gap-2 items-center">
                 <div className="flex items-center gap-2">
-                    <FaChevronLeft className="cursor-pointer" onClick={() => dispatch(setCurrentChat(null))} />
+                    <FaChevronLeft className="cursor-pointer" onClick={() => dispatch(removeCurrentChat())} />
                     <img src={currentChat.users_info.find(u => u._id !== id)?.picture} alt={currentChat.users_info.find(u => u._id !== id)?.name} className="w-12 h-12 rounded-full" />
                     <div className="truncate">
                         <p className="truncate">{currentChat.users_info.find(u => u._id !== id)?.name}</p>
-                        <p className="text-green-400 text-xs">{typing && "Typing..."}</p>
+                        <p className="text-green-400 text-xs">{typing ? "Typing..." : online?.includes(currentChat.users_info.find(u => u._id !== id)?._id) ? "Online" : <span className="text-red-500">Offline</span>}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-5">

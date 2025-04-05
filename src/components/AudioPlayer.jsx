@@ -12,9 +12,9 @@ export const AudioPlayer = ({ audio, type, className="", id, sender }) => {
 
     const handlePlayPause = () => {
         if (isPlaying) {
-            audioRef.current.pause()
+            audioRef.current?.pause()
         } else {
-            audioRef.current.play()
+            audioRef.current?.play()
         }
         setIsPlaying(!isPlaying)
     }
@@ -40,7 +40,7 @@ export const AudioPlayer = ({ audio, type, className="", id, sender }) => {
     useEffect(() => {
         if (audioRef.current) {
             audioRef.current.addEventListener('loadedmetadata', () => {
-                setDuration(audioRef.current.duration)
+                setDuration(audioRef.current?.duration)
             })
         }
     }, [])
